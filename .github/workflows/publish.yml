@@ -1,0 +1,42 @@
+name: Verify and publish LectureLive
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (must match lecture_live/__init__.py, e.g. 0.6.0)'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*.*.*'
+permissions:
+  contents: write
+jobs:
+  verify-and-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+          cache: 'pip'
+      - name: Install app dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run automated tests
+        run: python -m unittest discover -s tests -p "test_*.py" -q
+      - name: Verify version and create ZIP
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { '${{ github.ref_name }}' }
+          python scripts/build_release.py $v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { '${{ github.ref_name }}' }
+          $v = $v.TrimStart('v')
+          $asset = "LectureLive_v$v.zip"
+          gh release create "v$v" $asset --title "LectureLive v$v" --notes "Windows offline lecture transcription. Test before real classes." --target "${{ github.sha }}" --latest
